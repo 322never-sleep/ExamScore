@@ -1,0 +1,135 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="theme-color" content="#172b4d">
+<title>国考行测加权估分器</title>
+<style>
+:root{--bg:#f3f5f8;--card:#fff;--ink:#202938;--muted:#6b7280;--blue:#2764d8;--green:#15966a;--line:#e1e6ed}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font-family:system-ui,-apple-system,"Microsoft YaHei",sans-serif}
+.wrap{max-width:980px;margin:0 auto;padding:28px 18px 40px}
+h1{font-size:clamp(24px,4vw,32px);margin:0 0 7px}
+.sub{color:var(--muted);margin:0 0 22px;font-size:14px}
+.hero{background:#172b4d;color:white;border-radius:18px;padding:22px 24px;margin-bottom:18px;box-shadow:0 8px 24px #172b4d18}
+.hero-top{display:flex;align-items:center;justify-content:space-between;gap:12px}
+.hero small{color:#dce7fa;font-size:14px}
+.total{font-size:42px;font-weight:750;letter-spacing:-1px}
+.track{height:11px;background:#344766;border-radius:99px;overflow:hidden;margin:12px 0 8px}
+.fill{height:100%;width:0;background:#31c48d;border-radius:99px;transition:width .2s}
+.note{color:#dce7fa;font-size:12px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:18px;margin-bottom:16px;box-shadow:0 4px 16px #172b4d08}
+table{width:100%;border-collapse:collapse}
+th{background:#e7eed1;font-weight:650;font-size:14px}
+th,td{padding:12px 10px;text-align:center;border-bottom:1px solid var(--line)}
+td:first-child,th:first-child{text-align:left}
+tbody tr:last-child td{border-bottom:0}
+input{width:82px;max-width:100%;padding:9px 8px;border:1px solid #cfd7e3;border-radius:9px;text-align:center;font:inherit;font-weight:600;color:var(--ink);background:#fff}
+input:focus{outline:2px solid #2764d833;border-color:var(--blue)}
+.score{font-weight:700;color:var(--blue);font-variant-numeric:tabular-nums}
+tfoot{background:#f1f4f8;font-weight:700}
+h2{font-size:17px;margin:0 0 15px}
+.chart-row{display:grid;grid-template-columns:130px 1fr 72px;align-items:center;gap:12px;margin:13px 0;font-size:13px}
+.bar{height:12px;background:#e9edf3;border-radius:99px;overflow:hidden}
+.bar>i{display:block;height:100%;width:0;background:var(--blue);border-radius:99px}
+.chart-val{text-align:right;color:var(--muted);font-variant-numeric:tabular-nums}
+.actions{display:flex;gap:10px;flex-wrap:wrap;margin-top:16px}
+button{border:0;border-radius:10px;padding:10px 15px;font:inherit;font-weight:650;cursor:pointer}
+.primary{background:var(--blue);color:white}
+.secondary{background:#edf1f7;color:var(--ink)}
+.hint{font-size:12px;color:var(--muted);margin:12px 0 0}
+@media(max-width:620px){
+ .wrap{padding:20px 12px 30px}.card{padding:12px 10px}
+ th,td{padding:10px 5px;font-size:12px}
+ input{width:58px;padding:8px 3px}
+ .chart-row{grid-template-columns:105px 1fr 58px;gap:8px;font-size:12px}
+ .total{font-size:36px}
+}
+</style>
+</head>
+<body>
+<main class="wrap">
+  <h1>国考行测加权估分器</h1>
+  <p class="sub">按题型输入正确题数，实时计算加权得分 · 手机和电脑均可使用</p>
+
+  <section class="hero" aria-live="polite">
+    <div class="hero-top">
+      <small>当前行测估算总分</small>
+      <div class="total"><span id="total">0.0</span><small> / 100</small></div>
+    </div>
+    <div class="track"><div class="fill" id="totalFill"></div></div>
+    <div class="note" id="answered">已答对 0 / 130 题</div>
+  </section>
+
+  <section class="card">
+    <table>
+      <thead><tr><th>题型</th><th>题量</th><th>分值/题</th><th>正确题数</th><th>得分</th></tr></thead>
+      <tbody id="rows"></tbody>
+      <tfoot><tr><td>合计</td><td>130</td><td>—</td><td id="correctTotal">0</td><td class="score" id="scoreTotal">0.0 / 100</td></tr></tfoot>
+    </table>
+    <div class="actions">
+      <button class="primary" id="reset">全部清零</button>
+      <button class="secondary" id="half">填入每类一半</button>
+    </div>
+    <p class="hint">输入范围为 0 至该题型题量。此计算器严格按你提供的分值表计算，不代表官方最终折算分。</p>
+  </section>
+
+  <section class="card">
+    <h2>各模块得分情况</h2>
+    <div id="chart"></div>
+  </section>
+</main>
+<script>
+const sections = [
+  ["言语理解与表达",40,0.8],
+  ["数量关系",10,1.0],
+  ["图形推理",10,0.7],
+  ["定义判断",10,0.7],
+  ["类比推理",10,0.6],
+  ["逻辑判断",10,0.8],
+  ["资料分析",20,1.0],
+  ["常识判断",20,0.5]
+];
+const rows = document.getElementById("rows");
+const chart = document.getElementById("chart");
+sections.forEach(([name,count,weight],i)=>{
+  const tr=document.createElement("tr");
+  tr.innerHTML=`<td>${name}</td><td>${count}</td><td>${weight.toFixed(1).replace(/\.0$/,"")}</td>
+  <td><input type="number" min="0" max="${count}" step="1" value="0" inputmode="numeric" aria-label="${name}正确题数" data-index="${i}"></td>
+  <td class="score" id="score-${i}">0.0</td>`;
+  rows.appendChild(tr);
+  const cr=document.createElement("div");
+  cr.className="chart-row";
+  cr.innerHTML=`<span>${name}</span><div class="bar"><i id="bar-${i}"></i></div><span class="chart-val" id="chart-${i}">0/${(count*weight).toFixed(1).replace(/\.0$/,"")}</span>`;
+  chart.appendChild(cr);
+});
+const inputs=[...document.querySelectorAll("input[data-index]")];
+function calculate(){
+  let total=0,correctTotal=0,valid=true;
+  sections.forEach(([name,count,weight],i)=>{
+    const input=inputs[i];
+    let n=Number(input.value);
+    const ok=input.value!=="" && Number.isInteger(n) && n>=0 && n<=count;
+    input.setCustomValidity(ok?"":`请输入 0 到 ${count} 之间的整数`);
+    input.style.borderColor=ok?"":"#d94848";
+    if(!ok){valid=false;n=0}
+    const score=n*weight,max=count*weight;
+    total+=score;correctTotal+=n;
+    document.getElementById(`score-${i}`).textContent=score.toFixed(1);
+    document.getElementById(`bar-${i}`).style.width=`${score/max*100}%`;
+    document.getElementById(`chart-${i}`).textContent=`${score.toFixed(1).replace(/\.0$/,"")}/${max.toFixed(1).replace(/\.0$/,"")}`;
+  });
+  document.getElementById("total").textContent=valid?total.toFixed(1):"—";
+  document.getElementById("totalFill").style.width=`${valid?total:0}%`;
+  document.getElementById("answered").textContent=`已答对 ${correctTotal} / 130 题`;
+  document.getElementById("correctTotal").textContent=correctTotal;
+  document.getElementById("scoreTotal").textContent=valid?`${total.toFixed(1)} / 100`:"请检查输入";
+}
+inputs.forEach(input=>input.addEventListener("input",calculate));
+document.getElementById("reset").addEventListener("click",()=>{inputs.forEach(i=>i.value=0);calculate()});
+document.getElementById("half").addEventListener("click",()=>{sections.forEach((s,i)=>inputs[i].value=Math.floor(s[1]/2));calculate()});
+calculate();
+</script>
+</body>
+</html>
